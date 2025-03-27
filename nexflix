@@ -1,0 +1,29 @@
+pipeline {
+    agent any
+    tools {
+        nodejs 'nodejs'  // Ensure 'node16' is available in Jenkins settings
+    }
+    stages {
+        stage('Clean Workspace') {
+            steps {
+                cleanWs()
+            }
+        }
+        stage('Checkout from Git') {
+            steps {
+                git branch: 'main', url: 'https://github.com/Muraboinam/netflix.git'
+            }
+        }
+        stage('Deploy to Kubernetes') {
+            steps {
+                script {
+                    dir('k8s') {
+                       withKubeConfig(caCertificate: '', clusterName: '', contextName: '', credentialsId: 'k8s', namespace: '', restrictKubeConfigAccess: false, serverUrl: '') {
+                                sh 'kubectl apply -f k8s-deployment.yml'
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
