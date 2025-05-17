@@ -1,0 +1,81 @@
+pipeline{
+    agent any
+    environment {
+        AWS_ACCESS_KEY_ID = credentials('acess_key')
+        AWS_SECRET_ACCESS_KEY = credentials('secretkey')
+        AWS_DEFULT_REGION = credentials('region')
+        SCANNER_HOME=tool 'sonar-scanner'
+    }
+    tools{
+        nodejs 'nodejs'
+    }
+    
+    stages {
+        stage('clean workspace'){
+            steps{
+                cleanWs()
+            }
+        }
+        stage('Checkout from Git'){
+            steps{
+                git branch: 'main', url: 'https://github.com/Muraboinam/firstwebsite.git'
+            }
+        }
+        stage("Sonarqube Analysis "){
+            steps{
+                withSonarQubeEnv('sonar-server') {
+                    sh ''' $SCANNER_HOME/bin/sonar-scanner -Dsonar.projectName=firstwebsite \
+                    -Dsonar.projectKey=squ_c32c33a6d1197dc5a8d36561b0089f5d15254641'''
+                }
+            }
+        }
+        stage("quality gate"){
+           steps {
+                script {
+                    waitForQualityGate abortPipeline: false, credentialsId: 'Sonar'
+                }
+            }
+        }
+        stage('Install Dependencies') {
+            steps {
+                sh "npm install"
+            }
+        }
+        stage('OWASP FS SCAN') {
+            steps {
+                dependencyCheck additionalArguments: '--scan ./ --disableYarnAudit --disableNodeAudit', odcInstallation: 'DP-Check'
+                dependencyCheckPublisher pattern: '**/dependency-check-report.xml'
+            }
+        }
+        stage('TRIVY FS SCAN') {
+            steps {
+                sh "trivy fs . > trivyfs.txt"
+            }
+        }
+        stage("Docker Build & Push"){
+            steps{
+                script{
+                   withDockerRegistry(credentialsId: 'docker', toolName: 'docker'){   
+                       sh "docker build -t maheshmu/firstwebsite:${env.BUILD_NUMBER} ."
+                       sh "docker push maheshmu/firstwebsite:${env.BUILD_NUMBER}"
+                       sh "sed -i 's/latest/${env.BUILD_NUMBER}/g' k8s-deployment.yml"
+                    }
+                }
+            }
+        }
+        stage("TRIVY"){
+            steps{
+                sh "trivy image  maheshmu/firstwebsite > trivyimage.txt" 
+            }
+        }
+        stage('Deploy to kubernets'){
+            steps{
+                sh "aws eks update-kubeconfig --region ap-south-1 --name EKS_CLOUD"
+                sh "kubectl apply -f k8s-deployment.yml"
+            }
+        }
+        
+        
+        
+    }
+}
